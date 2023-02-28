@@ -128,12 +128,8 @@ class MilvusDocumentStore(SQLDocumentStore):
             lost if you choose to recreate the index. Be aware that both the document_index and the label_index will
             be recreated.
         """
-        super().__init__(
-            url=sql_url, index=index, duplicate_documents=duplicate_documents, isolation_level=isolation_level
-        )
-
-        connections.add_connection(default={"host": host, "port": port})
-        connections.connect()
+        # TODO: Not multithread/multi connection safe, use named connections and create new if doesnt exist
+        connections.connect(host=host, port=port)
 
         if vector_dim is not None:
             warnings.warn(
@@ -145,10 +141,10 @@ class MilvusDocumentStore(SQLDocumentStore):
         else:
             self.embedding_dim = embedding_dim
 
-        self.index_file_size = index_file_size
         self.similarity = similarity
         self.cosine = False
 
+        # TODO Add the binary vector formats
         if similarity == "dot_product":
             self.metric_type = "IP"
         elif similarity == "l2":
@@ -190,15 +186,15 @@ class MilvusDocumentStore(SQLDocumentStore):
 
         if recreate_index:
             self._delete_index(index)
-            super().delete_labels()
 
         has_collection = utility.has_collection(collection_name=index)
+
         if not has_collection:
             fields = [
                 FieldSchema(name=self.id_field, dtype=DataType.INT64, is_primary=True, auto_id=True),
                 FieldSchema(name=self.embedding_field, dtype=DataType.FLOAT_VECTOR, dim=self.embedding_dim),
             ]
-
+            # TODO: Maybe do field metadata checks instead of name check
             for field in custom_fields:
                 if field.name == self.id_field or field.name == self.embedding_field:
                     logger.warning("Skipping '%s' as it is similar to 'id_field' or 'embedding_field'", field.name)
@@ -222,14 +218,11 @@ class MilvusDocumentStore(SQLDocumentStore):
 
         return collection
 
-    def _create_document_field_map(self) -> Dict:
-        return {self.index: self.embedding_field}
-
     def write_documents(
         self,
         documents: Union[List[dict], List[Document]],
         index: Optional[str] = None,
-        batch_size: int = 10_000,
+        batch_size: int = 10000,
         duplicate_documents: Optional[str] = None,
         headers: Optional[Dict[str, str]] = None,
         index_param: Optional[Dict[str, Any]] = None,
